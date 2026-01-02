@@ -1,8 +1,10 @@
 from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from json import loads, dumps
 from google.cloud import storage
 from google.cloud.storage import Blob
-from json import loads, dumps
-from dataclasses import dataclass, field
+
+
 
 #-----------
 # Dataclass and State
@@ -28,7 +30,7 @@ state = StorageState()
 #-----------
 
 def catch_errors_2(func):
-    """Wrapper that handles try/except in functions using the specified Tuple schema. Assumes 2 things in tuple.
+    """Handle try/except in a function. Assumes A tuple of 2 returned.
 
     Args:
         func (function): name of the function to wrap. Usually automatic with the @ syntax.
@@ -61,13 +63,15 @@ def catch_errors_3(func):
 
 
 def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
-    """Function to set up storage
+    """Set up storage and state object
 
     Args:
-        bucket_n (str): Bucket name. 
+        bucket_n (str): Bucket name. Must be a non-empty string.
 
     Returns:
-        Tuple[bool, Optional[str]]: 
+        Tuple[bool, Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
     """
 
     #Make sure we have bucket name.
@@ -82,7 +86,7 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
     #Set up our stuff
     try:
         #Get the client
-        state.client = storage.Client(project="project-1-483104")
+        state.client = storage.Client(project=" project-2-483120")
 
         #Set the state of our client
         state.bucket_name = bucket_n
@@ -116,14 +120,16 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
 
 @catch_errors_2
 def add_note(title:str,content:str) -> Tuple[bool,Optional[str]]:
-    """Function that adds notes to the cloud storage via JSON.
+    """Add a note to the clould storage JSON
 
     Args:
-        title (str): _description_
-        content (str): _description_
+        title (str): Title of the note. Must be non-empty string.
+        content (str): Content of the note. Must be a non-empty string.
 
     Returns:
-        Tuple[bool,Optional[str]]: A bool, indicating success or failure of the operation. The str is an error message(if no error, it is None).
+        Tuple[bool,Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
     """
 
     #Check title
@@ -160,14 +166,18 @@ def add_note(title:str,content:str) -> Tuple[bool,Optional[str]]:
 
 @catch_errors_3
 def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[str],Optional[dict]]:
-    """Function that gets notes from the cloud and serves them.
+    """Get note/notes from cloud storage and serves them.
 
     Args:
-        id (Optional[int]): ID of the note. If not provided, will get all notes.
+        id (Optional[str]): ID of the note in string form. If not provided, will get all notes. Id must be positive.
 
     Returns:
-        Tuple[bool,Optional[str]]: A bool, indicating success or failure of the operation. The str is an error message(if no error, it is None).
+        Tuple[bool,Optional[str],Optional[dict]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
+            - dict: The notes id in string form: the notes retrieved
     """
+
     #Make sure setup has run
     if state.client is None or state.blob_r is None:
         return (False, "Setup hasn't run yet.", None)
@@ -194,13 +204,16 @@ def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[str],Optional[dict]
 
 @catch_errors_2
 def delete_note(id:Optional[str]) -> Tuple[bool,Optional[str]]:
-    """Function to delete a note.
+    """Delete a note by id.
 
     Args:
-        id (Optional[int]): The id of the note that is to be deleted.
+        id (Optional[str]): ID of the note in string form. Id must be positive and exist in the cloud storage.
 
     Returns:
-        Tuple[bool,Optional[str]]: A bool, indicating success or failure of the operation. The str is an error message(if no error, it is None).
+        Tuple[bool,Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
+
     """
     #If no id, none of the below matters. So we check it.
     if id is None:
@@ -243,7 +256,7 @@ def delete_note(id:Optional[str]) -> Tuple[bool,Optional[str]]:
 #-----------
 
 def generate_id() -> int:
-    """Function to generate or take an id from entries that have been deleted.
+    """Generate an id.
 
     Returns:
         int: The Id which has been chosen.
@@ -271,13 +284,15 @@ def generate_id() -> int:
 
 
 def check_int_positive(*args:Optional[int]) -> Tuple[bool,Optional[str]]:
-    """Function to check that an integer is valid for purposes of specifying id.
+    """Check if an integer is valid for id.
 
     Args:
         prospect (Optional[int]): The integer to check. 
 
     Returns:
-        Tuple[bool,Optional[str]]: Bool indicating success of the function. The string is an error message (if any). Can be None if the function was successful.
+        Tuple[bool,Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
     """
 
     if len(args) == 0:
@@ -297,13 +312,15 @@ def check_int_positive(*args:Optional[int]) -> Tuple[bool,Optional[str]]:
     return (True,None)
 
 def check_string(*args:Optional[str]) -> Tuple[bool,Optional[str]]:
-    """_summary_
+    """Check strings for validity and non-empty.
 
     Args:
         prospect (Optional[str]): String to check.
 
     Returns:
-        Tuple[bool,Optional[str]]: Bool indicating success of the function. The string is an error message (if any). Can be None if the function was successful.
+        Tuple[bool,Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True 
     """
     if len(args) == 0:
         return (False,"Argument 0 is not provided.")

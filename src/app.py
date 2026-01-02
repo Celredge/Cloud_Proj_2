@@ -3,6 +3,8 @@
 from flask import Flask,request,jsonify, Response
 from main import setup, add_note, get_note, delete_note
 from typing import Optional, Tuple
+from functools import wraps
+
 
 #--------------
 #Flask App Creation
@@ -10,130 +12,168 @@ from typing import Optional, Tuple
 
 app = Flask(__name__)
 
+
+#----------
+#Wrapper Functions
+#-----------
+
+def handle_response(key: str = None):
+    """
+    Decorator for Flsk endpoints.
+
+    -Handles erros returned from main.py functions.
+    -Wraps successful responses in a consistent JSON structure.
+
+    Args:
+        key (str): Optional key to use in the JSON response for successful data.
+    """
+    def decorator(func):
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+
+            result = func(*args, **kwargs)
+            
+            #If this is for our Delete, Setup, or Add Endpoints...
+            if len(result) == 2:
+
+                #For Delete., Setup..., Add....
+               
+                
+                    if result[0]:
+                        return jsonify({"success": result[0]})
+                    else:
+                        return jsonify({"success": result[0],"error":result[1]}), 500
+            
+            #This is for our get
+            elif len(result) == 3:
+                
+                if key:
+
+                    if result[0]:
+                        return jsonify({"success": result[0],"notes":result[2]})
+                    else:
+                        return jsonify({"success": result[0],"error":result[1]}), 404
+
+                else:
+                    return jsonify({"success": result[0],"error":result[1]}), 500
+
+        return wrapper
+    return decorator
+
+
+
+        
+
+
 #----------
 #Route Functions
 #-----------
 
 #Function to handle the setup Route, used by the POST HTML type.
 @app.route("/setup", methods=["POST"])
+@handle_response()
 def setup_endpoint() -> Tuple[Response,Optional[int]]:
-    """Endpoint Method using the /setup endpoint and POST as it's HTML type. Used to setup the bucket and other things before the API can work.
+    """
+    POST /setup
+    Calls setup() in main.py
+
+    Request JSON:
+    {
+        "bucket": "<bucket name>"
+    }
 
     Returns:
-        (Response,int): The Jsonified Dictionary Response, and an Error Code, if any.
-    """
+        (Response,Optional[int]):
+            - Response: jsonified response with "success" and "error" fields.  
+            - Optional[int]: If not successful, error code.
+    """    
 
     #Get the data.
     data = request.get_json()
 
     #We need our bucket name for setup. If  we don't have a bucket name, or we don't get data...
-    if not data or "bucket" not in data:
-        return jsonify({"success": False,"error":"Bucket name not provided"}), 400
+    if not data or if "bucket" not in data:
+        return False,"bucket is a required field."
     
-    #Get the bucket name, and call setup() in main.py
-    bucket_name = data["bucket"]
-    success, error = setup(bucket_name)
-
-    #If it was not successful, then send the error to the client.
-    if not success:
-        return jsonify({"success":False,"error":error}), 500
+    return setup(data["bucket"])
     
-    #Successful. Indicate it was to the client.
-    return jsonify({"success":True,"bucket":bucket_name})
+    
 
 #Function to handle the posting of notes, through the notes route and the POST HTML type.
 @app.route("/notes", methods = ["POST"])
+@handle_response()
 def add_note_endpoint() -> Tuple(Response,Optional[int]):
-    """Endpoint Method of using the /notes endpoint and POST as it's HTML type. Used to Post a note using the API. Must use the setup function above before working.
+    """
+    POST /notes
+    Calls add_note() in main.py
+
+    Request JSON:
+    {
+        "title": "<note title>",
+        "content": "<note content>"
+    }
 
     Returns:
-        (Response,int): Jsonified response of success, and an error code, if any.
-    """
+        (Response,Optional[int]):
+            - Response: jsonified response with "success" and "error" fields.  
+            - Optional[int]: If not successful, error code.
+    """    
 
-    #Request the data
     data = request.get_json()
 
-    #If we don't get any data, send the error back to Client.
-    if not data:
-        return jsonify({"success": False,"error":"Payload not provided."}), 400
-    
-    #Get the Title and the Content of the Note from the JSON, since it's a dictionary.
-    # / Note: Case sensitive in JSON. Be careful.
-    title = data.get("title")
-    content = data.get("content")
+    if not data or "title" not in data, or "content" not in data:
+        return False,"title and content fields are required."
 
-    #Execute add_note() function in main.
-    success, error = add_note(title,content)
+    title = data["title"]
+    content = data["content"]
 
-    if not success:
-         return jsonify({"success":False,"error":error}), 500
-    
-    return jsonify({"success":True})
+    return add_note(title,content)
 
 #Function to handle the getting of notes, through the notes route and the GET HTML type.
 @app.route("/notes",methods=["GET"])
+@handle_response("notes")
 def get_note_endpoint() -> Tuple[Response,Optional[int]]:
-    """Endpoint Method of using the /notes endpoint and GET as it's HTML type. Used to get a note/notes using the API. Must use the setup function above before working. Gets all  notes if the id in the json is missing,
-    or a specific one if the id is there.
+    """
+    GET /notes:?
+    Calls get_note() in main.py
+
+    Query Parameters:
+        id (optional): If provided, returns the note with this id. Must be positive
+            and exist in the cloud storage.
 
     Returns:
-        (Response,int): The response containing the Notes/Note gotten, and an error code if necessary.
-    """
-    #We must determine which version of the function to invoke.
-    if "id" not in request.args.keys() or len(request.args) == 0:
+        (Response,Optional[int]):
+            - Response: jsonified response with "success" and "error" fields if failed, "success"
+                and "notes" field for success. 
+            - Optional[int]: If not successful, error code.
+    """    
 
-        #Get all notes in the function.
-        succ, err, dat = get_note()
-
-        #See if succeeded and handle errors.
-        if not succ:
-            return jsonify({"success": False,"error": err}), 500
-        
-        #Successful. Let's send it off.
-        return jsonify({"success": True,"notes":dat})
-    
-    #If we must get a specific id...
-    else:
-        #Get the specific note from the id.
-        idf = request.args.get("id")
-        succ, err, dat = get_note(idf)
-
-        #See if succeeded and handle errors.
-        if not succ:
-            return jsonify({"success": False,"error":err}) , 404
-        
-        #Successful, let's send it off.
-        return jsonify({"success": True,"notes":dat})
+    note_id = request.args.get("id")
+    return get_note(note_id)
 
 #Function to handle the deletion of notes, through the notes route and the GET HTML type.
 @app.route("/notes",methods=["DELETE"])
+@handle_response("id")
 def delete_note_endpoint() -> Tuple[Response,Optional[int]]:
-    """Endpoint Method of using the /notes endpoint and DELETE as it's HTML type. Used to delete a note/notes using the API. Must use the setup function above before working. 
+    """
+    DELETE /notes:?
+    Calls delete_note() in main.py
+
+    Query Parameters:
+        id: Required. Positive integer id of note to delete. Must exist in the cloud storage.
 
     Returns:
-        (Response,int): The response containing the Notes/Note gotten, and an error code if necessary.
-    """
-    
-
-    
-    #We must determine which version of the function to invoke.
-    if "id" not in request.args.keys():
-
-        #We need the id. No dice.
-        return jsonify({"success": False,"error":"id was not included."}) , 404
-    
-    #Get the id and use the function
+        (Response,Optional[int]):
+            - Response: jsonified response with "success" and "error" fields if failed, "success"
+                and "notes" field for success. 
+            - Optional[int]: If not successful, error code.
+    """  
     idx = request.args.get("id")
-
-    #Use the function
-    succ, err = delete_note(idx)
-
-    #Not successful. Send a message.
-    if not succ:
-        return jsonify({"success": False,"error":err}) , 500
+    if not idx:
+        return False, "id was not included."
     
-    #Successful. Report the success.
-    return jsonify({"success":True,"id":idx})
+    return delete_note(idx)
 
 
 
