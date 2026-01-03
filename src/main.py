@@ -1,14 +1,27 @@
 from typing import Optional, Tuple
 from dataclasses import dataclass, field
-from json import loads, dumps
+from json import loads, dumps, load, dump, JSONDecodeError
 from google.cloud import storage
 from google.cloud.storage import Blob
+from google.api_core import exceptions as gcs_ex
+from pathlib import Path
+from os import getenv
+from enum import Enum
 
 
 
 #-----------
 # Dataclass and State
 #------------
+
+class ErrorCode(Enum):
+    INVALID_INPUT = 1
+    NOT_FOUND = 2
+    PERMISSION_DENIED = 3
+    SERVER_ERROR = 4
+    NOT_FOUND_USE_LOCAL = 5
+    PERMISSION_DENIED_USE_LOCAL = 6
+    SERVER_ERROR_USE_LOCAL = 7
 
 
 #Dataclass for storing instances of variables. A full class isn't quite needed here. (Maybe in the future.)
@@ -21,8 +34,11 @@ class StorageState:
     blob_r:Optional[Blob] = None
     id_count: int = 0
     old_ids:list[int] = field(default_factory=list)
+    source:str =  "online"
 
 state = StorageState()
+
+LOCAL_FILE:Optional[str] = getenv("LOCAL")
 
 
 #-----------
@@ -62,7 +78,7 @@ def catch_errors_3(func):
 #----------
 
 
-def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
+def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
     """Set up storage and state object
 
     Args:
@@ -76,12 +92,12 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
 
     #Make sure we have bucket name.
     if bucket_n is None:
-        return (False,"No bucket name provided.")
+        return (False,ErrorCode.INVALID_INPUT)
     
     #Check the bucket name.
     ok, err = check_string(bucket_n)
     if not ok:
-        return (False, str(err))
+        return (False, ErrorCode.INVALID_INPUT)
     
     #Set up our stuff
     try:
@@ -101,16 +117,43 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
         if not state.blob_r.exists():
             state.blob_r.upload_from_string("{}")
 
+    except gcs_ex.NotFound as e:
+    # Bucket does not exist.
+
+        print("Bucket not found, switching to local JSON")
+        state.client = None
+        state.bucket = None
+        state.blob_r = None
+        state.source = "offline"
+        setup_ensure_meta()
+        return (False, ErrorCode.NOT_FOUND_USE_LOCAL)
+    
+    except gcs_ex.Forbidden as e:
+        #Permission or billing
+        print("Access Forbidden, switching to local JSON")
+        state.client = None
+        state.bucket = None
+        state.blob_r = None
+        state.source = "offline"
+        setup_ensure_meta()
+        return (False, ErrorCode.PERMISSION_DENIED_USE_LOCAL)
+
+
     except Exception as e:
 
         #Return to our default state
+        print("Unknown error occurred during setup.")
         state.client = None
         state.bucket_name = ""
         state.bucket = None
         state.blob_r = None
-
-        return (False,str(e))
+        state.source = "offline"
+        setup_ensure_meta()
+        return (False,ErrorCode.SERVER_ERROR_USE_LOCAL)
     
+    state.source = "online"
+    setup_ensure_meta()
+    print(f"Setup Successful. Mode is {state.source}")
     return (True,None)
 
 #----------
@@ -119,7 +162,7 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[str]]:
 
 
 @catch_errors_2
-def add_note(title:str,content:str) -> Tuple[bool,Optional[str]]:
+def add_note(title:str,content:str) -> Tuple[bool,Optional[ErrorCode]]:
     """Add a note to the clould storage JSON
 
     Args:
@@ -135,37 +178,33 @@ def add_note(title:str,content:str) -> Tuple[bool,Optional[str]]:
     #Check title
     ok,err = check_string(title)
     if not ok:
-        return (False,str(err))
+        print("Adding note failed with invalid title string.")
+        return (False,ErrorCode.INVALID_INPUT)
     
     #Check Content
     ok, err = check_string(content)
+    
     if not ok:
-        return (False,str(err))
+        print("Adding note failed with invalid content string.")
+        return (False,ErrorCode.INVALID_INPUT)
 
     
-    #Check to see if setup was called.
-    if state.client is None or state.blob_r is None:
-        return (False, "Setup hasn't run yet.")
     
-    else:
-            #Get the notes.
-            notes = loads(state.blob_r.download_as_text())
+    notes = load_notes() or {}
 
-            #Get the id
-            note_id = generate_id()
 
-            #Modify the notes we have downloaded.
-            notes[str(note_id)] = {"title":title,"content":content}
+    id = generate_id()
 
-            #Upload
-            state.blob_r.upload_from_string(dumps(notes))
-        
+    notes[str(id)] = {"title":title,"content":content}
+
+    print("Note successfully added. MetaJSON updated.")
+    persist(notes)
 
         
     return (True,None)
 
 @catch_errors_3
-def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[str],Optional[dict]]:
+def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[ErrorCode],Optional[dict]]:
     """Get note/notes from cloud storage and serves them.
 
     Args:
@@ -178,32 +217,30 @@ def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[str],Optional[dict]
             - dict: The notes id in string form: the notes retrieved
     """
 
-    #Make sure setup has run
-    if state.client is None or state.blob_r is None:
-        return (False, "Setup hasn't run yet.", None)
-    
-    #Get the json data
-    notes = loads(state.blob_r.download_as_text())
+    #Discriminate between sources
+    notes = load_notes()
 
-    #If no id, return the entire notes
-    if id is None:
-        return (True,None,notes)
+
     
-    #Check the id to make sure it's good.
-    ok, err = check_int_positive(int(id))
-    if not ok:
-        return(False,str(err),None)
+    if id is None:
+        print("Getting all notes successful.")
+        return(True,None,hide_meta(notes))
+    
+    if parse_id(id) != None:
+        return (False,ErrorCode.INVALID_INPUT,None)
     
     entry = notes.get(id,None)
 
-    #If the entry doesn't exist...
     if entry is None:
-        return (False,"Id does not exist.",None)
-
-    return (True,None,{str(id): entry})
+        print("Getting note with Id failed because Id does not exist.")
+        return (False,ErrorCode.NOT_FOUND,None)
+    
+    print("Getting Note with Id Successful.")
+    return(True,None,entry)
+        
 
 @catch_errors_2
-def delete_note(id:Optional[str]) -> Tuple[bool,Optional[str]]:
+def delete_note(id:Optional[str]) -> Tuple[bool,Optional[ErrorCode]]:
     """Delete a note by id.
 
     Args:
@@ -217,39 +254,29 @@ def delete_note(id:Optional[str]) -> Tuple[bool,Optional[str]]:
     """
     #If no id, none of the below matters. So we check it.
     if id is None:
-        return (False, "No id provided.")
+        print("Delete note failed because Id was not provided.")
+        return (False, ErrorCode.INVALID_INPUT)
     
     #Check to see if id is valid number.
-    ok,err = check_int_positive(int(id))
-    if not ok:
-        return (False,str(err))
+    if parse_id(id) != None:
+        return (False,ErrorCode.INVALID_INPUT)
     
-    #Make sure setup has run
-    if state.client is None or state.blob_r is None:
-        return (False, "Setup hasn't run yet.")
-    
-    #Get the json data
-    notes = loads(state.blob_r.download_as_text())
+    #Discriminate between Sources
+    notes = load_notes() or {}
 
-
-    #Make sure that the id exists.
     note = notes.get(id,None)
 
-    #If we didn't find it...
     if note is None:
-        return (False,"Id does not exist.")
+        print("Id not found in JSON. Continuing...")
+        return (True, None)
     
-    #Add the deleted id to our free ids list.
     state.old_ids.append(int(id))
+    del notes[id]
 
-    #Delete the entry.
-    del notes[str(id)]
 
-    #Update the Cloud Storage.
-    state.blob_r.upload_from_string(dumps(notes))
-
-    return (True,None)
-
+    persist(notes)
+    print("Deleting Note Successful.")
+    return(True,None)
 
 #-----------
 #Helper Functions
@@ -278,12 +305,147 @@ def generate_id() -> int:
 
         return back
 
+def load_notes_local() -> Optional[dict]:
+    """Load the local notes and return the JSON
+
+    Returns:
+        Optional[dict]:
+            dict - A dictionary indicative of the local json data. None if file doesn't exist.
+    
+    """
+    if not LOCAL_FILE:
+        return None
+    
+    file_path = Path(LOCAL_FILE)
+
+    if not file_path.exists():
+        return None
+    
+    with open(file_path,"r",encoding ="utf-8") as f:
+        try:
+            return load(f)
+        except JSONDecodeError:
+            #If file is corrupted, start fresh
+            return {}
+        
+    
+def save_notes_local(notes:dict):
+    """Save the notes into JSON
+
+    Args:
+        dict:
+            dict - The dictionary to make into JSON and save.
+
+    """
+    if not LOCAL_FILE:
+        return
+    
+    file_path = Path(LOCAL_FILE)
+
+    with open(file_path,"w",encoding="utf-8") as f:
+
+        dump(notes, f, indent=2)
+
+def load_notes()-> dict:
+    """Load Notes for both types.
+
+    Returns:
+        dict: Data that was loaded from the JSON.
+    """
+    if state.source == "offline":
+        return load_notes_local() or {}
+    elif state.blob_r != None and state.source == "online":
+        try:
+            return loads(state.blob_r.download_as_text())
+        except JSONDecodeError:
+            return {}
+    
+    return {}
+
+def save_notes(notes:dict):
+    """Save Notes for both types.
+
+    Args:
+        notes (dict): Data that is to be stored in the JSON.
+    """
+
+    if state.source == "offline":
+        return save_notes_local(notes)
+    elif state.blob_r != None and state.source == "online":
+        state.blob_r.upload_from_string(dumps(notes))
+
+def setup_ensure_meta():
+    """Ensure metadata is in the JSON. Add it if missing.
+    """
+
+    notes = load_notes()
+
+    if '_meta' not in notes:
+        notes["_meta"] = {"id_count":0,"old_ids":[]}
+        save_notes(notes)
+    else:
+        #id_count
+
+        metas = notes.get("_meta",None)
+        if metas is not None:
+            state.id_count = metas.get("id_count",0)
+            state.old_ids = metas.get("old_ids",[])
+
+def persist(notes:dict):
+    """Writes current data to meta and notes.
+    """
+    notes['_meta'] = {"id_count":state.id_count,"old_ids":state.old_ids}
+    save_notes(notes)
+
+def hide_meta(notes:dict) -> dict:
+    """Hides meta from getting all notes.
+
+    Args:
+        notes (dict): Dictionary storing the notes and meta.
+
+    Returns:
+        dict: Argument dictionary without meta.
+    """
+    true = {}
+
+    for k,v in notes.items():
+
+        if k != "_meta":
+
+            true[k] = v
+    return true
+
+        
+        
 #----------------
 # Verification Functions
 #----------------
 
+def parse_id(id_val: Optional[str]) -> Optional[ErrorCode]:
+    """Use check_int_positive and other checks to make sure an id is valid.
 
-def check_int_positive(*args:Optional[int]) -> Tuple[bool,Optional[str]]:
+    Args:
+        id_val (Optional[str]): Number to check in str form.
+
+    Returns:
+        Optional[ErrorCode]: None if successful, ErrorCode type if unsuccessful.
+    """
+
+    if id_val is None:
+        return ErrorCode.INVALID_INPUT
+    
+    try:
+        i = int(id_val)
+    except (ValueError,TypeError):
+        return ErrorCode.INVALID_INPUT
+    
+    ok, _ = check_int_positive(i)
+    if not ok:
+        return ErrorCode.INVALID_INPUT
+    
+    return None
+
+def check_int_positive(*args:Optional[int]) -> Tuple[bool,Optional[ErrorCode]]:
     """Check if an integer is valid for id.
 
     Args:
@@ -296,22 +458,22 @@ def check_int_positive(*args:Optional[int]) -> Tuple[bool,Optional[str]]:
     """
 
     if len(args) == 0:
-        return (False,"Argument 0 is not provided.")
+        return (False,ErrorCode.INVALID_INPUT)
 
     for idx, i in enumerate(args):
         
         #Check that they are strings.
         if not isinstance(i,int):
-            return (False,f"Argument {idx} is not an integer.")
+            return (False,ErrorCode.INVALID_INPUT)
         
         #Check that they are not negative.
         if i < 0:
-            return (False,f"Argument {idx} is negative.")
+            return (False,ErrorCode.INVALID_INPUT)
         
     
     return (True,None)
 
-def check_string(*args:Optional[str]) -> Tuple[bool,Optional[str]]:
+def check_string(*args:Optional[str]) -> Tuple[bool,Optional[ErrorCode]]:
     """Check strings for validity and non-empty.
 
     Args:
@@ -323,18 +485,18 @@ def check_string(*args:Optional[str]) -> Tuple[bool,Optional[str]]:
             - str: Error Message if bool is False. None if True 
     """
     if len(args) == 0:
-        return (False,"Argument 0 is not provided.")
+        return (False,ErrorCode.INVALID_INPUT)
 
 
     for idx, s in enumerate(args):
 
         #Check that they are strings.
         if not isinstance(s,str):
-            return (False,f"Argument {idx} is not a string.")
+            return (False,ErrorCode.INVALID_INPUT)
         
         #Check that they are not empty.
         if len(s.strip()) == 0:
-            return (False, f"Argument {idx} is empty.")
+            return (False, ErrorCode.INVALID_INPUT)
 
     
     #Checks out.
