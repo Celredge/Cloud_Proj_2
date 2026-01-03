@@ -1,79 +1,56 @@
-What I learned:
+#Project 2: Authentication
 
--Flask
-    | Acts as the *bridge* between Python code and HTTP.
-    | Msotly used for experimentation, or lightweight to medium projects.
-    |Uses "Routes" to determine which Python function to invoke.
-    |For the note app, one example is /notes, / is the default.
-    |You can use request.method in your functions to determine the HTTP type of command.
-    (GET -> Get something)
-    (POST -> Send something)
-    (PATCH -> Partially Update)
-    (DELETE -> Delete something)
-    (UPDATE -> Fully update something.)
+##Overview
+Project 2 is a polished version of the Project 1 API. It supports adding, retrieving, and deleting notes.
+Supports Offline and Online .json persistent storage.
 
--Syntax
-    | Use a *decorator* (@) to specify what HTTP types and the route the function handles.
+###Features
 
-    Ex: @app.route("/path",methods =[...])
-    def function_name():
-        return response
+    + Retrieve All Notes, or note by Id using /notes GET and id argument in the JSON.
+    + Delete a Note by Id using /notes DELETE and id argument in the JSON.
+    + Add a Note by using /notes and POST.
+    + Offline/Online Modes, Automatic fallback to local if cloud bucket cannot be found.
+    + Configurable Local JSON file for offline use through .env
+    + Persistence in Offline or Online functions in Notes, Note Id using metaJSON.
+    + API key authentication handling through JSON and .env
 
+## Getting Started
+
+    First, install the prerequisites from requirements.txt
+    '''powershell
+    pip install -r requirements.txt
+
+    Create a .env file if you do not have it yet. Set it with 2 things.
+    API_KEY=your_secret_key
+    LOCAL=local_notes.json (Or whatever json file in the folder that you wish to use as local storage.)
+
+    Run the server.
+    python app.py
+
+    Example Requests:
+    Invoke-RestMethod -Uri http://127.0.0.1:5000/notes -Method GET -Headers @{ "X-API-KEY" = "your_secret_key" }
+    Invoke-RestMethod -Uri http://127.0.0.1:5000/notes -Method POST -Headers @{ "X-API-KEY" = "your_secret_key" } -Body '{"title":"Hello","content":"World"}' -ContentType "application/json"
+
+
+
+## What I learned
+
+    ###Wrappers
     
-    /path -> endpoint
-    methods=[...] -> Your HTTP methods to respond to. (GET, POST, etc...)
-    function_name -> function to handle those types of requests
-    return can be text, JSON, or HTML. (Hyper-***text*** markup langauge.)
+    + An outermost function must exist if the wrapper takes additional arguments (like key).
+    + The innermost function actually calls your func passed in, and does the logic. 
+    + The innermost function doesn't need the key because of *closure*. Python keeps outer variables alive for nested functions. (Think of it kind of like global.)
+    + Think of it like a Russian nesting doll. Outer holds the key, middle knows which function to execute, innermost actually runs.
+    + You can write local helper functions in wrappers! Don't forget this.
 
-    | Provides a "request" object to do requests on. requests.method to check method, request.args to get the arguments, requests.get_JSON() to get the JSON from a POST
+    ###Authentication
+    + This project uses an API Key. The request is only taken if the given key and the secret one stored in .env are the same.
+    + Didn't use HTML. While it's a bit more standard, it's not too great for programmatic access, as well as need session management, and more moving parts like hashing, sessions, etc.
+    + API Keys is optimal because this *is* an API, not a website.
 
-    | Responses are usually JSON. 
-    {status:"ok", "data":...}
-    {status:"error","message":...}
-    
--app
-    |app is usually the handle for a Flask instance/object.
-    This represents the web application.
-    |All routes, config, and server behaviour are attached.
+    ###JSON
+    + dumps and loads as well as dump and load are different from each other in json. dumps takesw a Python object, and makes it into a JSON string. loads takes a JSON string and makes it a python object. Use with things like Blobs. dump and load are for working *directly* with files, and not objects like Blobs. download_as_text() returns a *JSON STRING* not a Python, one, which is why we have to use it.
 
-    | Flask(__name__) -> "reception desk" object.
-      app.route(...) -> Tells the desk "This url triggers this function."
+    ###Persistence
+    + Try to have 'One source of Truth' for everything. It makes it a lot easier. One in, one out. 
 
-      app.run() -> Opens the desk to start recieving visitors.
-
-    | Holds all routes I define. Handles incoming requests, calls appropriate pyhon function, configure debug mode, ports, templates, middleware, etc.
-
-    | @app.route("/notes") is a better representation of:
-
-        def notes(): ...
-        app.add_url_rule("/notes", view_func=notes)
-    
-    | You can use jsonify to pass back things that are dictionaries.
-    | Json headers are case sensitive. Be careful!
-
--Main
-    | Usually does more complex logic, while you let the app/Flask object handle the Communication.
-    
--Dataclasses
-    | Mini classes that just hold data. Come from the dataclasses module. Usually good to avoid globals.
-    | Learned about this, but completely forgot.
-
--Buckets
-    | Apparently people usually only use one bucket per environment, so bucket-switching is not needed here?
-
--Wrappers
-    | Functions are objects in Python
-    | Wrappers are functions that call other functions, and can do extra work before, or after.
-    def wrapper(func):
-        def inner(*args, **kwargs)
-            print("Running the function...")
-            result = func(*args,**kwargs)
-            print("Running after the function...")
-            return result
-        return inner
-    | This can be used for exceptions, or modification before or after a function.
-
-If I could do this again:
-
-    I would be able to format things a bit better, I think. There is a lot of repetion in the handle functions.
-    I would be able to handle a bit more complex JSON.
