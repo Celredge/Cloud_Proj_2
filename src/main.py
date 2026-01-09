@@ -1,3 +1,5 @@
+
+
 from typing import Optional, Tuple
 from dataclasses import dataclass, field
 from json import loads, dumps, load, dump, JSONDecodeError
@@ -22,6 +24,7 @@ class ErrorCode(Enum):
     NOT_FOUND_USE_LOCAL = 5
     PERMISSION_DENIED_USE_LOCAL = 6
     SERVER_ERROR_USE_LOCAL = 7
+    SETUP_REQUIRED = 8
 
 
 #Dataclass for storing instances of variables. A full class isn't quite needed here. (Maybe in the future.)
@@ -188,7 +191,12 @@ def add_note(title:str,content:str) -> Tuple[bool,Optional[ErrorCode]]:
         print("Adding note failed with invalid content string.")
         return (False,ErrorCode.INVALID_INPUT)
 
-    
+    if state.source == "offline":
+        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
+            return (False,ErrorCode.SETUP_REQUIRED)
+        
+    if state.source == "online" and (state.blob_r is None or state.bucket is None):
+        return (False,ErrorCode.SETUP_REQUIRED)
     
     notes = load_notes() or {}
 
@@ -218,9 +226,14 @@ def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[ErrorCode],Optional
     """
 
     #Discriminate between sources
+    if state.source == "offline":
+        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
+            return (False,ErrorCode.SETUP_REQUIRED,None)
+        
+    if state.source == "online" and (state.blob_r is None or state.bucket is None):
+        return (False,ErrorCode.SETUP_REQUIRED,None)
+    
     notes = load_notes()
-
-
     
     if id is None:
         print("Getting all notes successful.")
@@ -253,6 +266,15 @@ def delete_note(id:Optional[str]) -> Tuple[bool,Optional[ErrorCode]]:
 
     """
     #If no id, none of the below matters. So we check it.
+    
+    if state.source == "offline":
+        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
+            return (False,ErrorCode.SETUP_REQUIRED)
+        
+    if state.source == "online" and (state.blob_r is None or state.bucket is None):
+        return (False,ErrorCode.SETUP_REQUIRED)
+    
+
     if id is None:
         print("Delete note failed because Id was not provided.")
         return (False, ErrorCode.INVALID_INPUT)
@@ -314,12 +336,14 @@ def load_notes_local() -> Optional[dict]:
     
     """
     if not LOCAL_FILE:
+        print("Local was none.")
         return None
     
     file_path = Path(LOCAL_FILE)
 
     if not file_path.exists():
         return None
+
     
     with open(file_path,"r",encoding ="utf-8") as f:
         try:
@@ -352,6 +376,12 @@ def load_notes()-> dict:
     Returns:
         dict: Data that was loaded from the JSON.
     """
+
+    # Fail early if setup was never run
+    if state.source == "online" and (state.blob_r is None or state.bucket is None):
+        raise RuntimeError("Storage not initialized. Please run setup first.")
+
+
     if state.source == "offline":
         return load_notes_local() or {}
     elif state.blob_r != None and state.source == "online":

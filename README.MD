@@ -24,12 +24,36 @@ Supports Offline and Online .json persistent storage.
     API_KEY=your_secret_key
     LOCAL=local_notes.json (Or whatever json file in the folder that you wish to use as local storage.)
 
+    There is a .env.example file with the push that will help you if you get confused. You can modify the path in the .env LOCAL variable to point somewhere else if you need a json that is not local to your file structure. The Program should create the file for you if it is not present.
+
     Run the server.
     python app.py
 
-    Example Requests:
+    Note: You *must* use the setup endpoint at least once validly. It is what sets up paths for file. Bucket is the name of the cloud bucket to connect to. If it can't be found, it falls back to local storage.
+    
+    Invoke-RestMethod -Uri http://127.0.0.1:5000/setup -Method POST -ContentType "application/json" -Body (@{ bucket = "my-notes-bucket" } | ConvertTo-Json)
+
+
+
+    Example Requests (Powershell):
     Invoke-RestMethod -Uri http://127.0.0.1:5000/notes -Method GET -Headers @{ "X-API-KEY" = "your_secret_key" }
     Invoke-RestMethod -Uri http://127.0.0.1:5000/notes -Method POST -Headers @{ "X-API-KEY" = "your_secret_key" } -Body '{"title":"Hello","content":"World"}' -ContentType "application/json"
+
+
+## Containerization
+
+    Everything is included to create a container using docker, including the dockerfile. Use the following commands in the root directiory of the API. (That is, where requirements.txt and this README are.)
+    
+
+    Example Commands (Powershell):
+
+    docker build -t notes:api:taghere . 
+    docker run -p 5000:5000 --env-file src/.env notes-api:taghere
+
+    It should be noted you need Docker installed, as well as have followed the directions for creating a .env file, which is used here. The .env from your local environment will be carried over.
+
+
+
 
 
 

@@ -21,6 +21,7 @@ ERROR_MAP = {
     ErrorCode.NOT_FOUND_USE_LOCAL:  (200, "Using local data as fallback (remote not found)"),
     ErrorCode.PERMISSION_DENIED_USE_LOCAL: (200, "Using local data as fallback (permission denied)"),
     ErrorCode.SERVER_ERROR_USE_LOCAL: (200, "Using local data as fallback (server error)"),
+    ErrorCode.SETUP_REQUIRED: (403, "Setup must be run first.")
 }
 
 
@@ -162,7 +163,7 @@ def setup_endpoint() -> Tuple[Response,Optional[int]]:
 @app.route("/notes", methods = ["POST"])
 @require_api_key
 @handle_response()
-def add_note_endpoint() -> Tuple(Response,Optional[int]):
+def add_note_endpoint() -> tuple(Response,Optional[int]):
     """
     POST /notes
     Calls add_note() in main.py
