@@ -42,7 +42,7 @@ class StorageState:
 state = StorageState()
 
 load_dotenv()
-LOCAL_FILE:Optional[str] = getenv("LOCAL")
+LOCAL_FILE:str = getenv("LOCAL") or "local_notes.json"
 
 
 #-----------
@@ -123,8 +123,6 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
 
     except gcs_ex.NotFound as e:
     # Bucket does not exist.
-
-        print("Bucket not found, switching to local JSON")
         state.client = None
         state.bucket = None
         state.blob_r = None
@@ -134,7 +132,6 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
     
     except gcs_ex.Forbidden as e:
         #Permission or billing
-        print("Access Forbidden, switching to local JSON")
         state.client = None
         state.bucket = None
         state.blob_r = None
@@ -146,7 +143,6 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
     except Exception as e:
 
         #Return to our default state
-        print("Unknown error occurred during setup.")
         state.client = None
         state.bucket_name = ""
         state.bucket = None
@@ -157,7 +153,6 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
     
     state.source = "online"
     setup_ensure_meta()
-    print(f"Setup Successful. Mode is {state.source}")
     return (True,None)
 
 #----------
@@ -173,21 +168,21 @@ def health_check() -> Tuple[bool, str]:
     Returns:
         Tuple[bool, Optional[str]]:
             - bool: True if setup was success without errors. False if not. 
-            - str: Error Message if bool is False. None if True
+            - str: Error Message if bool is False. Confirmation message if bool is True.
     """
-    if state.source == "offline":
-        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
-            return (False,"Server is responding. Setup has not been ran.")
+    if state.source == "offline" and not Path(LOCAL_FILE).exists():
+        return (False,"Server is responding. Setup has not been ran.")
         
     if state.source == "online" and (state.blob_r is None or state.bucket is None):
         return (False,"Server is responding. Setup has not been run yet.")
     
-    else:
-        return (True,"Server is responding. Setup has been ran.")
+    
+    return (True,"Server is responding. Setup has been ran.")
+
 
 @catch_errors_2
 def add_note(title:str,content:str) -> Tuple[bool,Optional[ErrorCode]]:
-    """Add a note to the clould storage JSON
+    """Add a note to the cloud storage JSON
 
     Args:
         title (str): Title of the note. Must be non-empty string.
@@ -212,24 +207,20 @@ def add_note(title:str,content:str) -> Tuple[bool,Optional[ErrorCode]]:
         print("Adding note failed with invalid content string.")
         return (False,ErrorCode.INVALID_INPUT)
 
-    if state.source == "offline":
-        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
-            return (False,ErrorCode.SETUP_REQUIRED)
+    #Check our sources to ensure setup has ran
+    if state.source == "offline" and not Path(LOCAL_FILE).exists():
+        return (False,ErrorCode.SETUP_REQUIRED)
         
     if state.source == "online" and (state.blob_r is None or state.bucket is None):
         return (False,ErrorCode.SETUP_REQUIRED)
     
-    notes = load_notes() or {}
 
+    notes = load_notes() or {}
 
     id = generate_id()
 
     notes[str(id)] = {"title":title,"content":content}
-
-    print("Note successfully added. MetaJSON updated.")
     persist(notes)
-
-        
     return (True,None)
 
 @catch_errors_3
@@ -247,8 +238,7 @@ def get_note(id:Optional[str] = None) -> Tuple[bool,Optional[ErrorCode],Optional
     """
 
     #Discriminate between sources
-    if state.source == "offline":
-        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
+    if state.source == "offline" and not Path(LOCAL_FILE).exists():
             return (False,ErrorCode.SETUP_REQUIRED,None)
         
     if state.source == "online" and (state.blob_r is None or state.bucket is None):
@@ -288,9 +278,8 @@ def delete_note(id:Optional[str]) -> Tuple[bool,Optional[ErrorCode]]:
     """
     #If no id, none of the below matters. So we check it.
     
-    if state.source == "offline":
-        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
-            return (False,ErrorCode.SETUP_REQUIRED)
+    if state.source == "offline" and not Path(LOCAL_FILE).exists():
+        return (False,ErrorCode.SETUP_REQUIRED)
         
     if state.source == "online" and (state.blob_r is None or state.bucket is None):
         return (False,ErrorCode.SETUP_REQUIRED)
@@ -348,7 +337,7 @@ def generate_id() -> int:
 
         return back
 
-def load_notes_local() -> Optional[dict]:
+def load_notes_local() -> dict:
     """Load the local notes and return the JSON
 
     Returns:
@@ -356,24 +345,16 @@ def load_notes_local() -> Optional[dict]:
             dict - A dictionary indicative of the local json data. None if file doesn't exist.
     
     """
-    print(f"DEBUG: LOCAL_FILE={LOCAL_FILE}, exists? {Path(LOCAL_FILE).exists() if LOCAL_FILE else 'N/A'}")
-
-    if not LOCAL_FILE:
-        print("Local was none.")
-        return None
-    
     file_path = Path(LOCAL_FILE)
 
-    if not file_path.exists():
-        return None
-
+    Path(LOCAL_FILE).touch(exist_ok=True)
     
-    with open(file_path,"r",encoding ="utf-8") as f:
-        try:
+    try:
+        with open(file_path,"r",encoding ="utf-8") as f:
             return load(f)
-        except JSONDecodeError:
-            #If file is corrupted, start fresh
-            return {}
+    except (JSONDecodeError,FileNotFoundError):
+        #If file is corrupted, start fresh
+        return {}
         
     
 def save_notes_local(notes:dict):
@@ -384,12 +365,7 @@ def save_notes_local(notes:dict):
             dict - The dictionary to make into JSON and save.
 
     """
-    if not LOCAL_FILE:
-        return
-    
-    file_path = Path(LOCAL_FILE)
-
-    with open(file_path,"w",encoding="utf-8") as f:
+    with open(LOCAL_FILE,"w",encoding="utf-8") as f:
 
         dump(notes, f, indent=2)
 
