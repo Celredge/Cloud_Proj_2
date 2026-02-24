@@ -24,17 +24,25 @@ Supports Offline and Online .json persistent storage.
     API_KEY=your_secret_key
     LOCAL=local_notes.json (Or whatever json file in the folder that you wish to use as local storage.)
 
+
     There is a .env.example file with the push that will help you if you get confused. You can modify the path in the .env LOCAL variable to point somewhere else if you need a json that is not local to your file structure. The Program should create the file for you if it is not present.
+
+    You can also set the .env variables yourself if you want enhanced security. 
 
     Run the server.
     python app.py
 
     Note: You *must* use the setup endpoint at least once validly. It is what sets up paths for file. Bucket is the name of the cloud bucket to connect to. If it can't be found, it falls back to local storage.
+
+    Example Setup Request (Powershell):
+    Invoke-RestMethod -Uri http://127.0.0.1:5000/setup -Method POST -ContentType "application/json" -Body (@{ bucket = "my-notes-bucket" } | ConvertTo-Json)
+
     If you are unsure if you have run setup, then running the "health" endpoint will confirm.
 
-    
-    
-    Invoke-RestMethod -Uri http://127.0.0.1:5000/setup -Method POST -ContentType "application/json" -Body (@{ bucket = "my-notes-bucket" } | ConvertTo-Json)
+    Example Health Request (Powershell):
+    Invoke-RestMethod -Uri http://127.0.0.1:5000/health -Method GET
+
+
 
 
 
@@ -55,9 +63,12 @@ Supports Offline and Online .json persistent storage.
 
     It should be noted you need Docker installed, as well as have followed the directions for creating a .env file, which is used here. The .env from your local environment will be carried over.
 
+    IF you want an alternate, more secure version for your API key or to point the API to a certain local file you load with it, you can alternatively run these versions of the commands to modify the containers env variables.
 
+    Example commands(Powershell):
 
-
+    docker build -t notes:api:taghere .
+    docker run -e API_KEY="your_secret_key_here" -p 5000:5000 notes-api:taghere
 
 
 ## What I learned
@@ -79,5 +90,5 @@ Supports Offline and Online .json persistent storage.
     + dumps and loads as well as dump and load are different from each other in json. dumps takes a Python object, and makes it into a JSON string. loads takes a JSON string and makes it a python object. Use with things like Blobs. dump and load are for working *directly* with files, and not objects like Blobs. download_as_text() returns a *JSON STRING* not a Python, one, which is why we have to use it.
 
     ###Persistence
-    + Try to have 'One source of Truth' for everything. It makes it a lot easier. One in, one out. 
+    + Try to have 'One source of Truth' for everything. It makes it a lot easier. One in, one out. Unfortunately, with containers, their files are deleted upon restart. 
 
