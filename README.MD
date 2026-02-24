@@ -30,6 +30,9 @@ Supports Offline and Online .json persistent storage.
     python app.py
 
     Note: You *must* use the setup endpoint at least once validly. It is what sets up paths for file. Bucket is the name of the cloud bucket to connect to. If it can't be found, it falls back to local storage.
+    If you are unsure if you have run setup, then running the "health" endpoint will confirm.
+
+    
     
     Invoke-RestMethod -Uri http://127.0.0.1:5000/setup -Method POST -ContentType "application/json" -Body (@{ bucket = "my-notes-bucket" } | ConvertTo-Json)
 
@@ -42,7 +45,7 @@ Supports Offline and Online .json persistent storage.
 
 ## Containerization
 
-    Everything is included to create a container using docker, including the dockerfile. Use the following commands in the root directiory of the API. (That is, where requirements.txt and this README are.)
+    Everything is included to create a container using docker, including the dockerfile. Use the following commands in the root directory of the API. (That is, where requirements.txt and this README are.)
     
 
     Example Commands (Powershell):
@@ -73,7 +76,7 @@ Supports Offline and Online .json persistent storage.
     + API Keys is optimal because this *is* an API, not a website.
 
     ###JSON
-    + dumps and loads as well as dump and load are different from each other in json. dumps takesw a Python object, and makes it into a JSON string. loads takes a JSON string and makes it a python object. Use with things like Blobs. dump and load are for working *directly* with files, and not objects like Blobs. download_as_text() returns a *JSON STRING* not a Python, one, which is why we have to use it.
+    + dumps and loads as well as dump and load are different from each other in json. dumps takes a Python object, and makes it into a JSON string. loads takes a JSON string and makes it a python object. Use with things like Blobs. dump and load are for working *directly* with files, and not objects like Blobs. download_as_text() returns a *JSON STRING* not a Python, one, which is why we have to use it.
 
     ###Persistence
     + Try to have 'One source of Truth' for everything. It makes it a lot easier. One in, one out. 

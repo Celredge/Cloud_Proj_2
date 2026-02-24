@@ -9,7 +9,7 @@ from google.api_core import exceptions as gcs_ex
 from pathlib import Path
 from os import getenv
 from enum import Enum
-
+from dotenv import load_dotenv
 
 
 #-----------
@@ -41,6 +41,7 @@ class StorageState:
 
 state = StorageState()
 
+load_dotenv()
 LOCAL_FILE:Optional[str] = getenv("LOCAL")
 
 
@@ -163,6 +164,26 @@ def setup(bucket_n:Optional[str]) -> Tuple[bool, Optional[ErrorCode]]:
 # Main Note functions
 #----------
 
+#A special case. Will never return False. If it *did*, then you wouldn't even get the False because you couldn't connect to server.
+# This is for the health check endpoint, which is not protected by the API key or the handle_response wrapper, since it's just a health check.
+#
+def health_check() -> Tuple[bool, str]:
+    """Check the health of the storage.
+
+    Returns:
+        Tuple[bool, Optional[str]]:
+            - bool: True if setup was success without errors. False if not. 
+            - str: Error Message if bool is False. None if True
+    """
+    if state.source == "offline":
+        if not LOCAL_FILE or not Path(LOCAL_FILE).exists():
+            return (False,"Server is responding. Setup has not been ran.")
+        
+    if state.source == "online" and (state.blob_r is None or state.bucket is None):
+        return (False,"Server is responding. Setup has not been run yet.")
+    
+    else:
+        return (True,"Server is responding. Setup has been ran.")
 
 @catch_errors_2
 def add_note(title:str,content:str) -> Tuple[bool,Optional[ErrorCode]]:
@@ -335,6 +356,8 @@ def load_notes_local() -> Optional[dict]:
             dict - A dictionary indicative of the local json data. None if file doesn't exist.
     
     """
+    print(f"DEBUG: LOCAL_FILE={LOCAL_FILE}, exists? {Path(LOCAL_FILE).exists() if LOCAL_FILE else 'N/A'}")
+
     if not LOCAL_FILE:
         print("Local was none.")
         return None
@@ -407,6 +430,9 @@ def save_notes(notes:dict):
 def setup_ensure_meta():
     """Ensure metadata is in the JSON. Add it if missing.
     """
+    if state.source == "offline" and LOCAL_FILE:
+        Path(LOCAL_FILE).touch(exist_ok=True)
+    
 
     notes = load_notes()
 
@@ -444,9 +470,7 @@ def hide_meta(notes:dict) -> dict:
 
             true[k] = v
     return true
-
-        
-        
+       
 #----------------
 # Verification Functions
 #----------------

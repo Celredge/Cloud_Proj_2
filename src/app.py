@@ -1,14 +1,12 @@
 #type: ignore
 
 from flask import Flask,request,jsonify, Response
-from main import setup, add_note, get_note, delete_note
+from main import setup, add_note, get_note, delete_note, health_check
 from typing import Optional, Tuple
 from functools import wraps
 import os
-from dotenv import load_dotenv
 from main import ErrorCode
 
-load_dotenv()
 
 #----------------
 # Error Code Mapping
@@ -157,7 +155,25 @@ def setup_endpoint() -> Tuple[Response,Optional[int]]:
     
     return setup(data["bucket"])
     
-    
+#Simple method for checking health of the server.
+# Not protected by API key, nor the handle_response() wrapper since it's just a health check.
+@app.route("/health", methods=["GET"])
+def health_check_endpoint() -> Tuple[Response,Optional[int]]:
+    """
+    GET /health
+    Simple health check endpoint.
+
+    Returns:
+        (Response,Optional[int]):
+            - Response: jsonified response with "success" and "error" fields.  
+            - Optional[int]: If not successful, error code.
+    """
+
+    ok, msg = health_check()
+    if ok:
+        return jsonify({"success": True,"message":msg}), 200
+    else:
+        return jsonify({"success": True,"error":msg}), 200
 
 #Function to handle the posting of notes, through the notes route and the POST HTML type.
 @app.route("/notes", methods = ["POST"])
